@@ -85,6 +85,14 @@ TEMPLATE_PATH_HARVEST = "{path_to_projects_dir}{project_folder}ILR_SEED_HARVEST_
 TEMPLATE_PATH_CLIMATE_CSV = "{climate_data}/csvs/{climate_model_folder}{climate_scenario_folder}{climate_region}/row-{crow}/col-{ccol}.csv"
 GEO_TARGET_GRID="epsg:31469" #proj4 -> 3-degree gauss-kruger zone 5 (=Germany) https://epsg.io/31469
 
+DEBUG_DONOT_SEND = True
+DEBUG_WRITE = True
+DEBUG_ROWS = 10
+DEBUG_WRITE_FOLDER = "./debug_out"
+DEBUG_WRITE_CLIMATE = True
+
+DEBUG_ROWS
+
 # some values in these templates will be overwritten by the setup 
 TEMPLATE_SIM_JSON="sim.json" 
 TEMPLATE_CROP_JSON="crop.json"
@@ -204,11 +212,14 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
     sent_env_count = 1
     start_time = time.clock()
 
+    listOfClimateFiles = set()
     # run calculations for each setup
     for _, setup_id in enumerate(run_setups):
 
         if setup_id not in setups:
             continue
+        start_setup_time = time.clock()      
+
         setup = setups[setup_id]
         climate_data = setup["climate_data"]
         climate_model = setup["climate_model"]
@@ -265,8 +276,14 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
         xllcorner = int(soil_metadata["xllcorner"])
         yllcorner = int(soil_metadata["yllcorner"])
 
+        print "All Rows x Cols: " + str(srows) + "x" + str(scols) 
         for srow in xrange(0, srows):
-            print srow,
+            
+            try:
+                print srow,
+            except Exception:
+                # no out
+                print srow,
 
             if srow < int(config["start-row"]):
                 continue
@@ -449,6 +466,8 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
                 # + climate_region + "/row-" + str(crow) + "/col-" + str(ccol) + ".csv"
                 env_template["pathToClimateCSV"] = paths["archive-path-to-climate-dir"] + subpath_to_csv
                 #print env_template["pathToClimateCSV"]
+                if DEBUG_WRITE_CLIMATE :
+                    listOfClimateFiles.add(subpath_to_csv)
 
                 env_template["customId"] = {
                     "setup_id": setup_id,
@@ -458,23 +477,48 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
                     "crop_id": crop_id
                 }
 
-                #with open("envs/env-"+str(sent_env_count)+".json", "w") as _: 
-                #    _.write(json.dumps(env))
+                if not DEBUG_DONOT_SEND :
+                    socket.send_json(env_template)
+                    print "sent env ", sent_env_count, " customId: ", env_template["customId"]
 
-                socket.send_json(env_template)
-                print "sent env ", sent_env_count, " customId: ", env_template["customId"]
-                #exit()
                 sent_env_count += 1
 
+                # write debug output, as json file
+                if DEBUG_WRITE:
+                    if not os.path.exists(DEBUG_WRITE_FOLDER):
+                        os.makedirs(DEBUG_WRITE_FOLDER)
+                    if sent_env_count < DEBUG_ROWS  :
+
+                        path_to_debug_file = DEBUG_WRITE_FOLDER + "/row_" + str(sent_env_count-1) + "_" + str(setup_id) + ".json" 
+
+                        if not os.path.isfile(path_to_debug_file):
+                            with open(path_to_debug_file, "w") as _ :
+                                _.write(json.dumps(env_template))
+                        else:
+                            print "WARNING: Row ", (sent_env_count-1), " already exists"
             #print "unknown_soil_ids:", unknown_soil_ids
 
             #print "crows/cols:", crows_cols
+        stop_setup_time = time.clock()
+        print "Setup ", (sent_env_count-1), " envs took ", (stop_setup_time - start_setup_time), " seconds"
 
     stop_time = time.clock()
 
-    print "sending ", (sent_env_count-1), " envs took ", (stop_time - start_time), " seconds"
-    #print "ran from ", start, "/", row_cols[start], " to ", end, "/", row_cols[end]
-    print "exiting run_producer()"
+    # write summary of used json files
+    if DEBUG_WRITE_CLIMATE:
+        if not os.path.exists(DEBUG_WRITE_FOLDER):
+            os.makedirs(DEBUG_WRITE_FOLDER)
+
+        path_to_climate_summary = DEBUG_WRITE_FOLDER + "/climate_file_list" + ".csv"
+        with open(path_to_climate_summary, "w") as _:
+            _.write('\n'.join(listOfClimateFiles))
+
+    try:
+        print "sending ", (sent_env_count-1), " envs took ", (stop_time - start_time), " seconds"
+        #print "ran from ", start, "/", row_cols[start], " to ", end, "/", row_cols[end]
+        print "exiting run_producer()"
+    except Exception:
+        raise
 
 if __name__ == "__main__":
     run_producer()
