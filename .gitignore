@@ -102,3 +102,9 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+.vscode
+csv-out
+debug_out
+out
+monica-data/climate-data/isimip/csvs/IPSL-CM5A-LR/historical/germany/*/*.csv
+monica-data/climate-data/isimip/csvs/IPSL-CM5A-LR/rcp2p6/germany/*/*.csv
