@@ -34,7 +34,7 @@ import numpy as np
 import zmq
 #print "pyzmq version: ", zmq.pyzmq_version(), " zmq version: ", zmq.zmq_version()
 
-import monica_io
+import monica_io3
 #print "path to monica_io: ", monica_io.__file__
 import monica_run_lib as Mrunlib
 
@@ -50,10 +50,15 @@ PATHS = {
         "local-path-to-data-dir": "C:/zalf-rpm/monica_example/monica-data/data/",
         "local-path-to-output-dir": "C:/zalf-rpm/monica_example/out/",
         "local-path-to-csv-output-dir": "C:/zalf-rpm/monica_example/csv-out/"
+    },
+    "remote": {
+        "local-path-to-data-dir": "D:/awork/zalf/monica/monica_example/monica-data/data/",
+        "local-path-to-output-dir": "D:/awork/zalf/monica/monica_example/out/",
+        "local-path-to-csv-output-dir": "D:/awork/zalf/monica/monica_example/csv-out/"
     }
 }
-LOCAL_RUN_HOST = "localhost"
-PORT = "7777"
+LOCAL_RUN_HOST = "login01.cluster.zalf.de" #"localhost"
+PORT = "7779"
 TEMPLATE_SOIL_PATH = "{local_path_to_data_dir}germany/buek1000_1000_gk5.asc"
 
 def create_output(result):
@@ -80,14 +85,14 @@ def create_output(result):
 
                     name = oid["name"] if len(oid["displayName"]) == 0 else oid["displayName"]
 
-                    if isinstance(val, types.ListType):
+                    if isinstance(val, list):
                         for val_ in val:
                             vals[name] = val_
                     else:
                         vals[name] = val
 
                 if "CM-count" not in vals:
-                    print "Missing CM-count in result section. Skipping results section."
+                    print("Missing CM-count in result section. Skipping results section.")
                     continue
 
                 cm_count_to_vals[vals["CM-count"]].update(vals)
@@ -104,7 +109,7 @@ def write_row_to_grids(row_col_data, row, ncols, header, path_to_output_dir, pat
     "write grids row by row"
     
     if row in row_col_data:
-        is_data_row = len(filter(lambda x: x != -9999, row_col_data[row].values())) > 0
+        is_data_row = len(list(filter(lambda x: x != -9999, row_col_data[row].values()))) > 0
         if is_data_row:
             path_to_row_file = path_to_csv_output_dir + "row-" + str(row) + ".csv" 
 
@@ -115,16 +120,16 @@ def write_row_to_grids(row_col_data, row, ncols, header, path_to_output_dir, pat
                     GPP-sum,NPP-sum,NEP-sum,Ra-sum,Rh-sum,G-iso,G-mono,Cycle-length,\
                     AbBiom-final,TraDef-avg,Stage-harv\n")
 
-            with open(path_to_row_file, 'ab') as _:
+            with open(path_to_row_file, 'a') as _:
                 writer = csv.writer(_, delimiter=",")
 
-                for col in xrange(0, ncols):
+                for col in range(0, ncols):
                     if col in row_col_data[row]:
                         rcd_val = row_col_data[row][col]
                         if rcd_val != -9999 and len(rcd_val) > 0:
                             cell_data = rcd_val[0]
 
-                            for cm_count, data in cell_data.iteritems():
+                            for cm_count, data in cell_data.items():
                                 row_ = [
                                     cm_count,
                                     row,
@@ -184,7 +189,7 @@ def write_row_to_grids(row_col_data, row, ncols, header, path_to_output_dir, pat
     # skip this part if we write just a nodata line
     if row in row_col_data:
         no_data_cols = 0
-        for col in xrange(0, ncols):
+        for col in range(0, ncols):
             if col in row_col_data[row]:
                 rcd_val = row_col_data[row][col]
                 if rcd_val == -9999:
@@ -193,8 +198,8 @@ def write_row_to_grids(row_col_data, row, ncols, header, path_to_output_dir, pat
                 else:
                     cmc_and_year_to_vals = defaultdict(lambda: defaultdict(list))
                     for cell_data in rcd_val:
-                        for cm_count, data in cell_data.iteritems():
-                            for key, val in output_grids.iteritems():
+                        for cm_count, data in cell_data.items():
+                            for key, val in output_grids.items():
                                 if cm_count not in cmc_to_crop:
                                     cmc_to_crop[cm_count] = data["Crop"]
 
@@ -203,8 +208,8 @@ def write_row_to_grids(row_col_data, row, ncols, header, path_to_output_dir, pat
                                 else:
                                     cmc_and_year_to_vals[(cm_count, data["Year"])][key] #just make sure at least an empty list is in there
 
-                    for (cm_count, year), key_to_vals in cmc_and_year_to_vals.iteritems():
-                        for key, vals in key_to_vals.iteritems():
+                    for (cm_count, year), key_to_vals in cmc_and_year_to_vals.items():
+                        for key, vals in key_to_vals.items():
                             output_vals = output_grids[key]["data"]
                             if len(vals) > 0:
                                 output_vals[(cm_count, year)][col] = sum(vals) / len(vals)
@@ -222,7 +227,7 @@ def write_row_to_grids(row_col_data, row, ncols, header, path_to_output_dir, pat
             rowstr = " ".join(["-9999" for __ in range(ncols)])
             file_.write(rowstr +  "\n")
 
-    for key, y2d_ in output_grids.iteritems():
+    for key, y2d_ in output_grids.items():
 
         y2d = y2d_["data"]
         cast_to = y2d_["cast-to"]
@@ -232,7 +237,7 @@ def write_row_to_grids(row_col_data, row, ncols, header, path_to_output_dir, pat
         else:
             mold = lambda x: str(round(x, digits))
 
-        for (cm_count, year), row_arr in y2d.iteritems():
+        for (cm_count, year), row_arr in y2d.items():
 
             crop = cmc_to_crop[cm_count]    
             crop = crop.replace("/", "").replace(" ", "")
@@ -271,7 +276,7 @@ def run_consumer(leave_after_finished_run = True, server = {"server": None, "por
     "collect data from workers"
 
     config = {
-        "user": "local" if LOCAL_RUN else "container",
+        "user": "remote" if LOCAL_RUN else "container",
         "port": server["port"] if server["port"] else PORT,
         "server": server["server"] if server["server"] else LOCAL_RUN_HOST, 
         "start-row": "0",
@@ -288,7 +293,7 @@ def run_consumer(leave_after_finished_run = True, server = {"server": None, "por
             if k in config:
                 config[k] = v
 
-    print "consumer config:", config
+    print("consumer config:", config)
 
     context = zmq.Context()
     if config["shared_id"]:
@@ -339,7 +344,7 @@ def run_consumer(leave_after_finished_run = True, server = {"server": None, "por
         leave = False
 
         if msg["type"] == "finish":
-            print "c: received finish message"
+            print("c: received finish message")
             leave = True
  
         elif not write_normal_output_files:
@@ -358,7 +363,7 @@ def run_consumer(leave_after_finished_run = True, server = {"server": None, "por
             + " next row: " + str(data["next-row"]) \
             + " cols@row to go: " + str(data["datacell-count"][row]) + "@" + str(row) + " cells_per_row: " + str(datacells_per_row[row])#\
             #+ " rows unwritten: " + str(data["row-col-data"].keys()) 
-            print debug_msg
+            print(debug_msg)
             #debug_file.write(debug_msg + "\n")
             data["row-col-data"][row][col].append(create_output(msg))
             data["datacell-count"][row] -= 1
@@ -378,7 +383,7 @@ def run_consumer(leave_after_finished_run = True, server = {"server": None, "por
                             os.makedirs(path_to_out_dir)
                             data["out_dir_exists"] = True
                         except OSError:
-                            print "c: Couldn't create dir:", path_to_out_dir, "! Exiting."
+                            print("c: Couldn't create dir:", path_to_out_dir, "! Exiting.")
                             exit(1)
                     if os.path.isdir(path_to_csv_out_dir) and os.path.exists(path_to_csv_out_dir):
                         data["out_dir_exists"] = True
@@ -387,13 +392,13 @@ def run_consumer(leave_after_finished_run = True, server = {"server": None, "por
                             os.makedirs(path_to_csv_out_dir)
                             data["out_dir_exists"] = True
                         except OSError:
-                            print "c: Couldn't create dir:", path_to_csv_out_dir, "! Exiting."
+                            print("c: Couldn't create dir:", path_to_csv_out_dir, "! Exiting.")
                             exit(1)
                 
                 write_row_to_grids(data["row-col-data"], data["next-row"], data["ncols"], data["header"], path_to_out_dir, path_to_csv_out_dir, setup_id)
                 
                 debug_msg = "wrote row: "  + str(data["next-row"]) + " next-row: " + str(data["next-row"]+1) + " rows unwritten: " + str(data["row-col-data"].keys())
-                print debug_msg
+                print(debug_msg)
                 #debug_file.write(debug_msg + "\n")
                 
                 data["next-row"] += 1 # move to next row (to be written)
@@ -405,7 +410,7 @@ def run_consumer(leave_after_finished_run = True, server = {"server": None, "por
                     process_message.setup_count += 1
                     # if all setups are done, the run_setups list should be empty and we can return
                     if process_message.setup_count >= int(config["no-of-setups"]):
-                        print "c: all results received, exiting"
+                        print("c: all results received, exiting")
                         leave = True
                         break
                 
@@ -415,7 +420,7 @@ def run_consumer(leave_after_finished_run = True, server = {"server": None, "por
                 #print "ignoring", result.get("type", "")
                 return
 
-            print "received work result ", process_message.received_env_count, " customId: ", str(msg.get("customId", "").values())
+            print("received work result ", process_message.received_env_count, " customId: ", str(msg.get("customId", "").values()))
 
             custom_id = msg["customId"]
             setup_id = custom_id["setup_id"]
@@ -460,15 +465,16 @@ def run_consumer(leave_after_finished_run = True, server = {"server": None, "por
             start_time_recv = timeit.default_timer()
             msg = socket.recv_json(encoding="latin-1")
             elapsed = timeit.default_timer() - start_time_recv
-            print "time to receive message" + str(elapsed)
+            print("time to receive message" + str(elapsed))
             start_time_proc = timeit.default_timer()
             leave = process_message(msg)
             elapsed = timeit.default_timer() - start_time_proc
-            print "time to process message" + str(elapsed)
-        except:
+            print("time to process message" + str(elapsed))
+        except Exception as e:
+            print("Exception:", e)
             continue
 
-    print "exiting run_consumer()"
+    print("exiting run_consumer()")
     #debug_file.close()
 
 if __name__ == "__main__":

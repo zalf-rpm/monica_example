@@ -2,7 +2,7 @@ import csv
 import json
 import numpy as np
 from scipy.interpolate import NearestNDInterpolator
-from pyproj import transform
+from pyproj import transform, Transformer
 from datetime import date, timedelta
 print("local monica_run_lib.py")
 
@@ -17,7 +17,7 @@ def read_sim_setups(path_to_setups_csv):
         setup_file.seek(0)
         # read csv with seperator char
         reader = csv.reader(setup_file, dialect)
-        header_cols = reader.next()
+        header_cols = next(reader)
         for row in reader:
             data = {}
             for i, header_col in enumerate(header_cols):
@@ -103,10 +103,12 @@ def create_seed_harvest_geoGrid_interpolator_and_read_data(path_to_csv_file, wor
         #print "reading:", path_to_csv_file
 
         # skip header line
-        reader.next()
+        next(reader)
 
         points = [] # climate station position (lat, long transformed to a geoTargetGrid, e.g gk5)
         values = [] # climate station ids
+
+        transformer = Transformer.from_proj(worldGeodeticSys84, geoTargetGrid) 
 
         prev_cs = None
         prev_lat_lon = [None, None]
@@ -120,7 +122,8 @@ def create_seed_harvest_geoGrid_interpolator_and_read_data(path_to_csv_file, wor
             if prev_cs is not None and cs != prev_cs:
 
                 llat, llon = prev_lat_lon
-                r_geoTargetGrid, h_geoTargetGrid = transform(worldGeodeticSys84, geoTargetGrid, llon, llat)
+                #r_geoTargetGrid, h_geoTargetGrid = transform(worldGeodeticSys84, geoTargetGrid, llon, llat)
+                r_geoTargetGrid, h_geoTargetGrid = transformer.transform(llon, llat)
                     
                 points.append([r_geoTargetGrid, h_geoTargetGrid])
                 values.append(prev_cs)
@@ -178,11 +181,13 @@ def create_climate_geoGrid_interpolator_from_json_file(path_to_latlon_to_rowcol_
         points = []
         values = []
 
+        transformer = Transformer.from_proj(worldGeodeticSys84, geoTargetGrid) 
+
         for latlon, rowcol in json.load(_):
             row, col = rowcol
             clat, clon = latlon
             try:
-                cr_geoTargetGrid, ch_geoTargetGrid = transform(worldGeodeticSys84, geoTargetGrid, clon, clat)
+                cr_geoTargetGrid, ch_geoTargetGrid = transformer.transform(clon, clat)
                 cdict[(row, col)] = (round(clat, 4), round(clon, 4))
                 points.append([cr_geoTargetGrid, ch_geoTargetGrid])
                 values.append((row, col))

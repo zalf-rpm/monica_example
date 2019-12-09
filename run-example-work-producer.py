@@ -21,18 +21,19 @@ import math
 import json
 import csv
 import copy
-from StringIO import StringIO
+#from StringIO import StringIO
 from datetime import date, timedelta
 from collections import defaultdict
 import sys
 import zmq
 
 import sqlite3
+import sqlite3 as cas_sq3
 import numpy as np
 from pyproj import Proj, transform
 
-import monica_io
-import soil_io
+import monica_io3
+import soil_io3
 import monica_run_lib as Mrunlib
 
 
@@ -61,6 +62,13 @@ PATHS = {
         "path-to-data-dir": "C:/zalf-rpm/monica_example/monica-data/data/", # mounted path to archive or hard drive with data 
         "path-to-projects-dir": "C:/zalf-rpm/monica_example/monica-data/projects/", # mounted path to archive or hard drive with project data 
     },
+    "remote": {
+        "include-file-base-path": "D:/awork/zalf/monica/monica-parameters/", # path to monica-parameters
+        "path-to-climate-dir": "D:/awork/zalf/monica/monica_example/monica-data/climate-data/", # mounted path to archive or hard drive with climate data 
+        "archive-path-to-climate-dir": "/monica_data/climate-data/", # mounted path to archive accessable by monica executable
+        "path-to-data-dir": "D:/awork/zalf/monica/monica_example/monica-data/data/", # mounted path to archive or hard drive with data 
+        "path-to-projects-dir": "D:/awork/zalf/monica/monica_example/monica-data/projects/", # mounted path to archive or hard drive with project data 
+    },
     "container": {
         "include-file-base-path": "/home/monica-parameters/", # monica parameter location in docker image
         "archive-path-to-climate-dir": "/monica_data/climate-data/",  # mounted path to archive on cluster docker image 
@@ -70,8 +78,8 @@ PATHS = {
     }
 }
 
-LOCAL_RUN_HOST = "localhost"
-PORT = "6666"
+LOCAL_RUN_HOST = "login01.cluster.zalf.de" #"localhost"
+PORT = "6668"
 RUN_SETUP = "[1,2]"
 SETUP_FILE = "sim_setups.csv"
 PROJECT_FOLDER = "monica-germany/"
@@ -85,8 +93,8 @@ TEMPLATE_PATH_HARVEST = "{path_to_projects_dir}{project_folder}ILR_SEED_HARVEST_
 TEMPLATE_PATH_CLIMATE_CSV = "{climate_data}/csvs/{climate_model_folder}{climate_scenario_folder}{climate_region}/row-{crow}/col-{ccol}.csv"
 GEO_TARGET_GRID="epsg:31469" #proj4 -> 3-degree gauss-kruger zone 5 (=Germany) https://epsg.io/31469
 
-DEBUG_DONOT_SEND = True
-DEBUG_WRITE = True
+DEBUG_DONOT_SEND = False
+DEBUG_WRITE = False
 DEBUG_ROWS = 10
 DEBUG_WRITE_FOLDER = "./debug_out"
 DEBUG_WRITE_CLIMATE = True
@@ -107,11 +115,11 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
     #config_and_no_data_socket = context.socket(zmq.PUSH)
 
     if LOCAL_RUN == False and not (server["server"] and server["port"]):
-        print "non LOCAL_RUN requires server and port"
+        print("non LOCAL_RUN requires server and port")
         return
 
     config = {
-        "user": "local" if LOCAL_RUN else "container",
+        "user": "remote" if LOCAL_RUN else "container",
         "port": server["port"] if server["port"] else PORT,
         "server": server["server"] if server["server"] else LOCAL_RUN_HOST,
         "start-row": "0", 
@@ -131,19 +139,20 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
             if k in config:
                 config[k] = v
 
-    print "config:", config
+    print("config:", config)
 
     # select paths 
     paths = PATHS[config["user"]]
     # open soil db connection
     soil_db_con = sqlite3.connect(paths["path-to-data-dir"] + DATA_SOIL_DB)
+    #soil_db_con = cas_sq3.connect(paths["path-to-data-dir"] + DATA_SOIL_DB) #CAS.
     # connect to monica proxy (if local, it will try to connect to a locally started monica)
     socket.connect("tcp://" + config["server"] + ":" + str(config["port"]))
 
     # read setup from csv file
     setups = Mrunlib.read_sim_setups(paths["path-to-projects-dir"] + PROJECT_FOLDER + config["setups-file"])
     run_setups = json.loads(config["run-setups"])
-    print "read sim setups: ", paths["path-to-projects-dir"] + PROJECT_FOLDER + config["setups-file"]
+    print("read sim setups: ", paths["path-to-projects-dir"] + PROJECT_FOLDER + config["setups-file"])
 
     #transforms geospatial coordinates from one coordinate reference system to another
     # transform wgs84 into gk5
@@ -155,17 +164,17 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
 
     # add crop id from setup file
     crops_in_setups = set()
-    for setup_id, setup in setups.iteritems():
+    for setup_id, setup in setups.items():
         crops_in_setups.add(setup["crop-id"])
 
     for crop_id in crops_in_setups:
         try:
             #read seed/harvest dates for each crop_id
             path_harvest = TEMPLATE_PATH_HARVEST.format(path_to_projects_dir=paths["path-to-projects-dir"], project_folder=PROJECT_FOLDER, crop_id=crop_id)
-            print "created seed harvest gk5 interpolator and read data: ", path_harvest           
+            print("created seed harvest gk5 interpolator and read data: ", path_harvest)
             Mrunlib.create_seed_harvest_geoGrid_interpolator_and_read_data(path_harvest, wgs84, gk5, ilr_seed_harvest_data)
         except IOError:
-            print "Couldn't read file:", paths["path-to-projects-dir"] + PROJECT_FOLDER + "ILR_SEED_HARVEST_doys_" + crop_id + ".csv"
+            print("Couldn't read file:", paths["path-to-projects-dir"] + PROJECT_FOLDER + "ILR_SEED_HARVEST_doys_" + crop_id + ".csv")
             continue
 
     # Load grids
@@ -176,27 +185,27 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
     dem_metadata, _ = Mrunlib.read_header(path_to_dem_grid)
     dem_grid = np.loadtxt(path_to_dem_grid, dtype=int, skiprows=6)
     dem_gk5_interpolate = Mrunlib.create_ascii_grid_interpolator(dem_grid, dem_metadata)
-    print "read: ", path_to_dem_grid
+    print("read: ", path_to_dem_grid)
     
     # slope data
     path_to_slope_grid = paths["path-to-data-dir"] + DATA_GRID_SLOPE
     slope_metadata, _ = Mrunlib.read_header(path_to_slope_grid)
     slope_grid = np.loadtxt(path_to_slope_grid, dtype=float, skiprows=6)
     slope_gk5_interpolate = Mrunlib.create_ascii_grid_interpolator(slope_grid, slope_metadata)
-    print "read: ", path_to_slope_grid
+    print("read: ", path_to_slope_grid)
 
     # land use data
     path_to_corine_grid = paths["path-to-data-dir"] + DATA_GRID_LAND_USE
     corine_meta, _ = Mrunlib.read_header(path_to_corine_grid)
     corine_grid = np.loadtxt(path_to_corine_grid, dtype=int, skiprows=6)
     corine_gk5_interpolate = Mrunlib.create_ascii_grid_interpolator(corine_grid, corine_meta)
-    print "read: ", path_to_corine_grid
+    print("read: ", path_to_corine_grid)
 
     # soil data
     path_to_soil_grid = paths["path-to-data-dir"] + DATA_GRID_SOIL
     soil_metadata, _ = Mrunlib.read_header(path_to_soil_grid)
     soil_grid = np.loadtxt(path_to_soil_grid, dtype=int, skiprows=6)
-    print "read: ", path_to_soil_grid
+    print("read: ", path_to_soil_grid)
 
     cdict = {}
     climate_data_to_gk5_interpolator = {}
@@ -207,7 +216,7 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
             # path to latlon-to-rowcol.json
             path = TEMPLATE_PATH_LATLON.format(path_to_climate_dir=paths["path-to-climate-dir"], climate_data=climate_data)
             climate_data_to_gk5_interpolator[climate_data] = Mrunlib.create_climate_geoGrid_interpolator_from_json_file(path, wgs84, gk5, cdict)
-            print "created climate_data to gk5 interpolator: ", path
+            print("created climate_data to gk5 interpolator: ", path)
 
     sent_env_count = 1
     start_time = time.clock()
@@ -245,7 +254,7 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
             crop_json = json.load(_)
 
         # create environment template from json templates
-        env_template = monica_io.create_env_json_from_json_config({
+        env_template = monica_io3.create_env_json_from_json_config({
             "crop": crop_json,
             "site": site_json,
             "sim": sim_json,
@@ -276,27 +285,27 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
         xllcorner = int(soil_metadata["xllcorner"])
         yllcorner = int(soil_metadata["yllcorner"])
 
-        print "All Rows x Cols: " + str(srows) + "x" + str(scols) 
-        for srow in xrange(0, srows):
+        print("All Rows x Cols: " + str(srows) + "x" + str(scols))
+        for srow in range(0, srows):
             
             try:
-                print srow,
+                print(srow,)
             except Exception:
                 # no out
-                print srow,
+                print(srow,)
 
             if srow < int(config["start-row"]):
                 continue
             elif int(config["end-row"]) > 0 and srow > int(config["end-row"]):
                 break
 
-            for scol in xrange(0, scols):
+            for scol in range(0, scols):
 
                 soil_id = soil_grid[srow, scol]
                 if soil_id == -9999:
                     continue
                 if soil_id < 1 or soil_id > 71:
-                    #print "row/col:", srow, "/", scol, "has unknown soil_id:", soil_id
+                    #print("row/col:", srow, "/", scol, "has unknown soil_id:", soil_id)
                     #unknown_soil_ids.add(soil_id)
                     continue
                 
@@ -318,7 +327,7 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
                 ilr_interpolate = ilr_seed_harvest_data[crop_id]["interpolate"]
                 seed_harvest_cs = ilr_interpolate(sr_gk5, sh_gk5) if ilr_interpolate else None
 
-                #print "scol:", scol, "crow/col:", (crow, ccol), "soil_id:", soil_id, "height_nn:", height_nn, "slope:", slope, "seed_harvest_cs:", seed_harvest_cs
+                #print("scol:", scol, "crow/col:", (crow, ccol), "soil_id:", soil_id, "height_nn:", height_nn, "slope:", slope, "seed_harvest_cs:", seed_harvest_cs)
 
 
                 clat, _ = cdict[(crow, ccol)]
@@ -378,10 +387,10 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
                             worksteps[0]["latest-date"] = seed_harvest_data["latest-sowing-date"]
                             worksteps[1]["latest-date"] = "{:04d}-{:02d}-{:02d}".format(hds[0], calc_harvest_date.month, calc_harvest_date.day)
 
-                    #print "dates: ", int(seed_harvest_cs), ":", worksteps[0]["earliest-date"], "<", worksteps[0]["latest-date"] 
-                    #print "dates: ", int(seed_harvest_cs), ":", worksteps[1]["latest-date"], "<", worksteps[0]["earliest-date"], "<", worksteps[0]["latest-date"] 
+                    #print("dates: ", int(seed_harvest_cs), ":", worksteps[0]["earliest-date"], "<", worksteps[0]["latest-date"] )
+                    #print("dates: ", int(seed_harvest_cs), ":", worksteps[1]["latest-date"], "<", worksteps[0]["earliest-date"], "<", worksteps[0]["latest-date"] )
 
-                #print "sowing:", worksteps[0], "harvest:", worksteps[1]
+                #print("sowing:", worksteps[0], "harvest:", worksteps[1])
                 
                 #with open("dump-" + str(c) + ".json", "w") as jdf:
                 #    json.dump({"id": (str(resolution) \
@@ -395,10 +404,10 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
                 env_template["params"]["userCropParameters"]["__enable_T_response_leaf_expansion__"] = setup["LeafExtensionModifier"]
 
                 # set soil-profile
-                sp_json = soil_io.soil_parameters(soil_db_con, soil_id)
-                soil_profile = monica_io.find_and_replace_references(sp_json, sp_json)["result"]
+                sp_json = soil_io3.soil_parameters(soil_db_con, int(soil_id))
+                soil_profile = monica_io3.find_and_replace_references(sp_json, sp_json)["result"]
                     
-                #print "soil:", soil_profile
+                #print("soil:", soil_profile)
 
                 env_template["params"]["siteParameters"]["SoilProfileParameters"] = soil_profile
 
@@ -409,7 +418,7 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
                     for layer in soil_profile:
                         if layer.get("is_in_groundwater", False):
                             groundwaterlevel = layer_depth
-                            #print "setting groundwaterlevel of soil_id:", str(soil_id), "to", groundwaterlevel, "m"
+                            #print("setting groundwaterlevel of soil_id:", str(soil_id), "to", groundwaterlevel, "m")
                             break
                         layer_depth += Mrunlib.get_value(layer["Thickness"])
                     env_template["params"]["userEnvironmentParameters"]["MinGroundwaterDepthMonth"] = 3
@@ -423,14 +432,14 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
                     for layer in soil_profile:
                         if layer.get("is_impenetrable", False):
                             impenetrable_layer_depth = layer_depth
-                            #print "setting leaching depth of soil_id:", str(soil_id), "to", impenetrable_layer_depth, "m"
+                            #print("setting leaching depth of soil_id:", str(soil_id), "to", impenetrable_layer_depth, "m")
                             break
                         layer_depth += Mrunlib.get_value(layer["Thickness"])
                     env_template["params"]["userEnvironmentParameters"]["LeachingDepth"] = [impenetrable_layer_depth, "m"]
                     env_template["params"]["siteParameters"]["ImpenetrableLayerDepth"] = [impenetrable_layer_depth, "m"]
 
                 if setup["elevation"]:
-                    env_template["params"]["siteParameters"]["heightNN"] = height_nn
+                    env_template["params"]["siteParameters"]["heightNN"] = float(height_nn)
 
                 if setup["slope"]:
                     env_template["params"]["siteParameters"]["slope"] = slope / 100.0
@@ -465,21 +474,21 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
                 # + (climate_scenario + "/" if climate_scenario else "") \
                 # + climate_region + "/row-" + str(crow) + "/col-" + str(ccol) + ".csv"
                 env_template["pathToClimateCSV"] = paths["archive-path-to-climate-dir"] + subpath_to_csv
-                #print env_template["pathToClimateCSV"]
+                #print(env_template["pathToClimateCSV"])
                 if DEBUG_WRITE_CLIMATE :
                     listOfClimateFiles.add(subpath_to_csv)
 
                 env_template["customId"] = {
                     "setup_id": setup_id,
                     "srow": srow, "scol": scol,
-                    "crow": crow, "ccol": ccol,
-                    "soil_id": soil_id,
+                    "crow": int(crow), "ccol": int(ccol),
+                    "soil_id": int(soil_id),
                     "crop_id": crop_id
                 }
 
                 if not DEBUG_DONOT_SEND :
                     socket.send_json(env_template)
-                    print "sent env ", sent_env_count, " customId: ", env_template["customId"]
+                    print("sent env ", sent_env_count, " customId: ", env_template["customId"])
 
                 sent_env_count += 1
 
@@ -495,12 +504,12 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
                             with open(path_to_debug_file, "w") as _ :
                                 _.write(json.dumps(env_template))
                         else:
-                            print "WARNING: Row ", (sent_env_count-1), " already exists"
-            #print "unknown_soil_ids:", unknown_soil_ids
+                            print("WARNING: Row ", (sent_env_count-1), " already exists")
+            #print("unknown_soil_ids:", unknown_soil_ids)
 
-            #print "crows/cols:", crows_cols
+            #print("crows/cols:", crows_cols)
         stop_setup_time = time.clock()
-        print "Setup ", (sent_env_count-1), " envs took ", (stop_setup_time - start_setup_time), " seconds"
+        print("Setup ", (sent_env_count-1), " envs took ", (stop_setup_time - start_setup_time), " seconds")
 
     stop_time = time.clock()
 
@@ -514,9 +523,9 @@ def run_producer(server = {"server": None, "port": None}, shared_id = None):
             _.write('\n'.join(listOfClimateFiles))
 
     try:
-        print "sending ", (sent_env_count-1), " envs took ", (stop_time - start_time), " seconds"
-        #print "ran from ", start, "/", row_cols[start], " to ", end, "/", row_cols[end]
-        print "exiting run_producer()"
+        print("sending ", (sent_env_count-1), " envs took ", (stop_time - start_time), " seconds")
+        #print("ran from ", start, "/", row_cols[start], " to ", end, "/", row_cols[end]
+        print("exiting run_producer()")
     except Exception:
         raise
 
